@@ -1,4 +1,5 @@
 """Maintenance Wizard - FastAPI Backend Application."""
+import asyncio
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
@@ -9,13 +10,8 @@ from app.database import engine, Base
 from app.routers import equipment, maintenance_logs, sensor_data, failure_reports, spare_parts, upload, dashboard, rag, anomaly, prediction, rca, recommendation, procurement, decision_support, learning, doc_intelligence, ai_actions, operational_data, search, intelligence_hub, fine_tuning, alerts, agent
 
 
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    """Application lifespan handler for startup and shutdown."""
-    # Startup: Create database tables
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
-
+async def _background_startup():
+    """Run heavy startup tasks in the background so the server starts fast."""
     # Warm up TF-IDF embedder with existing ChromaDB corpus
     try:
         from app.services.vector_db.chroma_service import get_vector_store
@@ -36,15 +32,27 @@ async def lifespan(app: FastAPI):
         fp = get_failure_predictor()
         rp = get_rul_predictor()
         if not fp.is_trained:
-            train_initial_failure_model()
+            await asyncio.to_thread(train_initial_failure_model)
             print("Failure prediction model trained on startup")
         if not rp.is_trained:
-            train_initial_rul_model()
+            await asyncio.to_thread(train_initial_rul_model)
             print("RUL prediction model trained on startup")
     except Exception as e:
         print(f"ML model auto-train skipped: {e}")
 
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Application lifespan handler for startup and shutdown."""
+    # Startup: Create database tables (fast — must complete before server accepts traffic)
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+
+    # Fire heavy tasks in the background — server is immediately ready to respond
+    asyncio.create_task(_background_startup())
+
     yield
+
     # Shutdown: Close database connections
     await engine.dispose()
 
