@@ -1,0 +1,5 @@
+#!/bin/sh
+echo "=== Maintenance Wizard Starting ==="
+echo "PORT=${PORT}"
+echo "PYTHONPATH=$(pwd)"
+exec uvicorn app.main:app --host 0.0.0.0 --port "${PORT:-8000}" --log-level info

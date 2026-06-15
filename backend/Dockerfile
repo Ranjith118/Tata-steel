@@ -1,6 +1,6 @@
 # ─────────────────────────────────────────────────────
 #  Maintenance Wizard — Backend (FastAPI)
-#  Build context: repo ROOT (Railway runs docker build from root)
+#  Build context: repo ROOT
 # ─────────────────────────────────────────────────────
 FROM python:3.11-slim
 
@@ -10,7 +10,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 WORKDIR /app
 
-# Copy requirements first for layer caching
 COPY backend/requirements.txt .
 
 RUN pip install --no-cache-dir --upgrade pip setuptools wheel && \
@@ -33,10 +32,10 @@ RUN pip install --no-cache-dir --upgrade pip setuptools wheel && \
         python-dateutil>=2.8.0 \
         aiofiles>=0.8.0
 
-# Copy backend app code
 COPY backend/app/ ./app/
+COPY backend/start.sh /start.sh
+RUN chmod +x /start.sh
 
-# Persistent data directories
 RUN mkdir -p /app/data /app/chroma_db /app/models
 
 ENV PORT=8000
@@ -45,12 +44,6 @@ ENV CHROMA_DB_DIR=/app/chroma_db
 ENV UPLOAD_DIR=/app/data
 ENV LLM_PROVIDER=groq
 ENV LLM_MODEL=llama-3.3-70b-versatile
-
-EXPOSE 8000
-
-# Write a proper startup script with error logging
-RUN printf '#!/bin/sh\necho "Starting uvicorn on port ${PORT:-8000}"\nexec uvicorn app.main:app --host 0.0.0.0 --port "${PORT:-8000}" --log-level debug\n' > /start.sh \
-    && chmod +x /start.sh
 
 EXPOSE 8000
 
