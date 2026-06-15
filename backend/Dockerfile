@@ -1,18 +1,17 @@
 # ─────────────────────────────────────────────────────
 #  Maintenance Wizard — Backend (FastAPI)
-#  Railway deployment
+#  Build context: repo ROOT (Railway runs docker build from root)
 # ─────────────────────────────────────────────────────
 FROM python:3.11-slim
 
-# System deps
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential gcc g++ libffi-dev libssl-dev curl \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 
-# Install Python deps (copy requirements first for layer caching)
-COPY requirements.txt .
+# Copy requirements first for layer caching
+COPY backend/requirements.txt .
 
 RUN pip install --no-cache-dir --upgrade pip setuptools wheel && \
     pip install --no-cache-dir -r requirements.txt && \
@@ -34,13 +33,12 @@ RUN pip install --no-cache-dir --upgrade pip setuptools wheel && \
         python-dateutil>=2.8.0 \
         aiofiles>=0.8.0
 
-# Copy app code
-COPY app/ ./app/
+# Copy backend app code
+COPY backend/app/ ./app/
 
-# Create persistent data directories
+# Persistent data directories
 RUN mkdir -p /app/data /app/chroma_db /app/models
 
-# Railway injects PORT env var — default 8000 for local
 ENV PORT=8000
 ENV DATABASE_URL=sqlite+aiosqlite:////app/data/maintenance_wizard.db
 ENV CHROMA_DB_DIR=/app/chroma_db
