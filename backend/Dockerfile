@@ -48,7 +48,10 @@ ENV LLM_MODEL=llama-3.3-70b-versatile
 
 EXPOSE 8000
 
-# Use a startup script so $PORT is always expanded correctly
-RUN echo '#!/bin/sh\nexec uvicorn app.main:app --host 0.0.0.0 --port "${PORT:-8000}"' > /start.sh && chmod +x /start.sh
+# Write a proper startup script with error logging
+RUN printf '#!/bin/sh\necho "Starting uvicorn on port ${PORT:-8000}"\nexec uvicorn app.main:app --host 0.0.0.0 --port "${PORT:-8000}" --log-level debug\n' > /start.sh \
+    && chmod +x /start.sh
+
+EXPOSE 8000
 
 CMD ["/start.sh"]

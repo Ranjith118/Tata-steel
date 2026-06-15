@@ -1,5 +1,6 @@
 """Maintenance Wizard - FastAPI Backend Application."""
 import asyncio
+import importlib
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
@@ -8,60 +9,62 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.config import settings
 from app.database import engine, Base
 
-# Import routers with fault tolerance — a single bad import won't crash the server
-_routers = []
+# ── Import routers with fault tolerance ───────────────────────────────────────
+# A single bad import won't crash the whole server — failed routers are skipped.
+_ROUTER_MODULES = [
+    "app.routers.equipment",
+    "app.routers.maintenance_logs",
+    "app.routers.sensor_data",
+    "app.routers.failure_reports",
+    "app.routers.spare_parts",
+    "app.routers.upload",
+    "app.routers.dashboard",
+    "app.routers.rag",
+    "app.routers.anomaly",
+    "app.routers.prediction",
+    "app.routers.rca",
+    "app.routers.recommendation",
+    "app.routers.procurement",
+    "app.routers.decision_support",
+    "app.routers.learning",
+    "app.routers.doc_intelligence",
+    "app.routers.ai_actions",
+    "app.routers.operational_data",
+    "app.routers.search",
+    "app.routers.intelligence_hub",
+    "app.routers.fine_tuning",
+    "app.routers.alerts",
+    "app.routers.agent",
+]
+
+_loaded_routers = []
 _failed_routers = []
 
-def _safe_import(module_path, attr="router"):
+for _mod_path in _ROUTER_MODULES:
     try:
-        import importlib
-        mod = importlib.import_module(module_path)
-        _routers.append(getattr(mod, attr))
-    except Exception as e:
-        _failed_routers.append((module_path, str(e)))
-        print(f"WARNING: Failed to import {module_path}: {e}")
-
-_safe_import("app.routers.equipment")
-_safe_import("app.routers.maintenance_logs")
-_safe_import("app.routers.sensor_data")
-_safe_import("app.routers.failure_reports")
-_safe_import("app.routers.spare_parts")
-_safe_import("app.routers.upload")
-_safe_import("app.routers.dashboard")
-_safe_import("app.routers.rag")
-_safe_import("app.routers.anomaly")
-_safe_import("app.routers.prediction")
-_safe_import("app.routers.rca")
-_safe_import("app.routers.recommendation")
-_safe_import("app.routers.procurement")
-_safe_import("app.routers.decision_support")
-_safe_import("app.routers.learning")
-_safe_import("app.routers.doc_intelligence")
-_safe_import("app.routers.ai_actions")
-_safe_import("app.routers.operational_data")
-_safe_import("app.routers.search")
-_safe_import("app.routers.intelligence_hub")
-_safe_import("app.routers.fine_tuning")
-_safe_import("app.routers.alerts")
-_safe_import("app.routers.agent")
+        _mod = importlib.import_module(_mod_path)
+        _loaded_routers.append(_mod.router)
+        print(f"OK: {_mod_path}")
+    except Exception as _e:
+        _failed_routers.append((_mod_path, str(_e)))
+        print(f"SKIP: {_mod_path} — {_e}")
 
 
+# ── Background startup tasks ──────────────────────────────────────────────────
 async def _background_startup():
-    """Run heavy startup tasks in the background so the server starts fast."""
-    # Warm up TF-IDF embedder with existing ChromaDB corpus
+    """Heavy init runs after server is already accepting requests."""
     try:
         from app.services.vector_db.chroma_service import get_vector_store
         from app.services.embeddings.embeddings import get_embedding_service
-        vs  = get_vector_store()
+        vs = get_vector_store()
         emb = get_embedding_service()
         texts = vs.get_all_texts(limit=500)
         if texts:
             emb.embed_texts(texts)
-            print(f"Embedder warmed up with {len(texts)} corpus texts")
+            print(f"Embedder warmed up with {len(texts)} texts")
     except Exception as e:
         print(f"Embedder warm-up skipped: {e}")
 
-    # Auto-train ML prediction models if not already trained
     try:
         from app.prediction.failure_model import get_failure_predictor, train_initial_failure_model
         from app.prediction.rul_model import get_rul_predictor, train_initial_rul_model
@@ -69,38 +72,38 @@ async def _background_startup():
         rp = get_rul_predictor()
         if not fp.is_trained:
             await asyncio.to_thread(train_initial_failure_model)
-            print("Failure prediction model trained on startup")
+            print("Failure model trained")
         if not rp.is_trained:
             await asyncio.to_thread(train_initial_rul_model)
-            print("RUL prediction model trained on startup")
+            print("RUL model trained")
     except Exception as e:
-        print(f"ML model auto-train skipped: {e}")
+        print(f"ML model training skipped: {e}")
 
 
+# ── Lifespan ──────────────────────────────────────────────────────────────────
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Application lifespan handler for startup and shutdown."""
-    # Startup: Create database tables (fast — must complete before server accepts traffic)
+    # Create DB tables (fast)
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+    print("DB tables ready")
 
-    # Fire heavy tasks in the background — server is immediately ready to respond
+    # Heavy work in background — server responds immediately
     asyncio.create_task(_background_startup())
 
     yield
 
-    # Shutdown: Close database connections
     await engine.dispose()
 
 
+# ── App ───────────────────────────────────────────────────────────────────────
 app = FastAPI(
     title=settings.APP_NAME,
     version="9.0.0",
-    description="Industrial Equipment Maintenance Management System for Steel Manufacturing Plants - Phase 9: Feedback Learning & Continuous Improvement",
-    lifespan=lifespan
+    description="Tata Steel Maintenance Wizard",
+    lifespan=lifespan,
 )
 
-# Configure CORS
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -109,44 +112,25 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Include routers
-app.include_router(equipment.router)
-app.include_router(maintenance_logs.router)
-app.include_router(sensor_data.router)
-app.include_router(failure_reports.router)
-app.include_router(spare_parts.router)
-app.include_router(upload.router)
-app.include_router(dashboard.router)
-app.include_router(rag.router)
-app.include_router(anomaly.router)
-app.include_router(prediction.router)
-app.include_router(rca.router)
-app.include_router(recommendation.router)
-app.include_router(procurement.router)
-app.include_router(decision_support.router)
-app.include_router(learning.router)
-app.include_router(doc_intelligence.router)
-app.include_router(ai_actions.router)
-app.include_router(operational_data.router)
-app.include_router(search.router)
-app.include_router(intelligence_hub.router)
-app.include_router(fine_tuning.router)
-app.include_router(alerts.router)
-app.include_router(agent.router)
+# Register successfully loaded routers
+for _router in _loaded_routers:
+    app.include_router(_router)
 
 
+# ── Core endpoints ────────────────────────────────────────────────────────────
 @app.get("/health")
 async def health_check():
-    """Health check endpoint."""
     return {"status": "healthy"}
 
 
 @app.get("/")
 async def root():
-    """Root endpoint."""
     return {
         "name": settings.APP_NAME,
         "version": "9.0.0",
         "status": "running",
+        "routers_loaded": len(_loaded_routers),
+        "routers_failed": len(_failed_routers),
+        "failed_details": _failed_routers,
         "docs": "/docs",
     }
